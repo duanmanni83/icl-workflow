@@ -666,12 +666,47 @@ class ToolEvaluateFieldComplexity:
         """
         try:
             data, wcs, header = FITSHandler.read_fits(image_fits_path)
-            data_clean = np.copy(data)
+
+            # Handle JWST and other data formats
+            # Convert to float64 and ensure positive for SEP
+            data_clean = np.array(data, dtype=np.float64)
+
+            # Replace NaN/Inf with 0
             data_clean[~np.isfinite(data_clean)] = 0
+
+            # Check if data is all zeros or has very small dynamic range
+            if np.max(data_clean) <= 0:
+                return ToolResult(
+                    success=False,
+                    message="Error: Image contains no positive values. Check if data is in correct units (e.g., MJy/sr for JWST may need conversion)."
+                )
+
+            # For JWST data in MJy/sr, may need scaling
+            # Auto-detect if values are very small (typical for surface brightness units)
+            data_max = np.max(data_clean)
+            if data_max < 1e-6:
+                # Likely in MJy/sr or similar, scale up
+                scale_factor = 1e9  # Convert to pseudo-counts
+                data_clean *= scale_factor
+                logger.info(f"Detected small values, scaling by {scale_factor}")
+
+            # Ensure minimum value is >= 0 for SEP
+            data_min = np.min(data_clean)
+            if data_min < 0:
+                data_clean -= data_min
+                logger.info(f"Shifted data by {-data_min} to make non-negative")
 
             # SEP extraction
             bkg = sep.Background(data_clean)
             data_sub = data_clean - bkg
+
+            # Check if background subtraction resulted in all zeros
+            if np.max(data_sub) <= 0:
+                return ToolResult(
+                    success=False,
+                    message="Error: Background subtraction failed. Data may have unusual distribution. Try a different image or check data quality."
+                )
+
             objects = sep.extract(data_sub, detect_thresh, err=bkg.globalrms)
 
             # Count bright vs faint stars

@@ -181,21 +181,33 @@ def step_0_file_upload():
 
                 st.session_state.workflow_state['step_results'][0] = result
 
-                # 显示结果
-                st.markdown('<div class="metric-card">', unsafe_allow_html=True)
-                cols = st.columns(4)
-                with cols[0]:
-                    st.metric("复杂度评分", f"{result.metrics['complexity_score']:.1f}")
-                with cols[1]:
-                    st.metric("亮星数量", result.metrics['num_bright_stars'])
-                with cols[2]:
-                    st.metric("暗星数量", result.metrics['num_faint_stars'])
-                with cols[3]:
-                    mode = "AUTO" if result.metrics['recommended_auto_mode'] else "MANUAL"
-                    st.metric("推荐模式", mode)
-                st.markdown('</div>', unsafe_allow_html=True)
+                # 检查是否成功
+                if not result.success or result.metrics is None:
+                    st.error(f"场复杂度评估失败: {result.message}")
+                    st.info("提示: JWST数据可能需要预处理。尝试将图像转换为float64格式，或检查数据是否包含NaN/Inf值。")
+                else:
+                    # 安全获取metrics值
+                    metrics = result.metrics
+                    complexity_score = metrics.get('complexity_score', 0)
+                    num_bright = metrics.get('num_bright_stars', 0)
+                    num_faint = metrics.get('num_faint_stars', 0)
+                    recommended_auto = metrics.get('recommended_auto_mode', False)
 
-                st.info(result.message)
+                    # 显示结果
+                    st.markdown('<div class="metric-card">', unsafe_allow_html=True)
+                    cols = st.columns(4)
+                    with cols[0]:
+                        st.metric("复杂度评分", f"{complexity_score:.1f}")
+                    with cols[1]:
+                        st.metric("亮星数量", int(num_bright))
+                    with cols[2]:
+                        st.metric("暗星数量", int(num_faint))
+                    with cols[3]:
+                        mode = "AUTO" if recommended_auto else "MANUAL"
+                        st.metric("推荐模式", mode)
+                    st.markdown('</div>', unsafe_allow_html=True)
+
+                    st.info(result.message)
 
                 # 下一步按钮
                 if st.button("进入 Step 1 →", key='to_step1'):

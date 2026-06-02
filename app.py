@@ -369,12 +369,39 @@ def step_1_initial_mask():
     """Step 1: 初始Mask提取"""
     st.markdown('<div class="step-header">Step 1: 初始星系Mask提取</div>', unsafe_allow_html=True)
 
-    image_path = st.session_state.workflow_state['image_path']
+    image_path = st.session_state.workflow_state.get('image_path')
     instrument = st.session_state.workflow_state.get('instrument', 'HST')
 
-    # 根据仪器给出建议
+    # 检查是否有上传的文件
+    if image_path is None or not Path(image_path).exists():
+        st.error("⚠️ 请先上传FITS文件 (Step 0)")
+        if st.button("← 返回 Step 0"):
+            st.session_state.workflow_state['current_step'] = 0
+            st.rerun()
+        return
+
+    # 根据仪器给出建议和推荐值
     if instrument == 'JWST':
-        st.info("💡 JWST建议: 检测阈值 ≥ 3.0, 最小面积 ≥ 10")
+        recommended_thresh = 3.0
+        recommended_area = 10
+        st.info(f"💡 JWST建议: 检测阈值 ≥ {recommended_thresh}, 最小面积 ≥ {recommended_area}")
+    elif instrument == 'HST':
+        recommended_thresh = 1.5
+        recommended_area = 5
+        st.info(f"💡 HST建议: 检测阈值 = {recommended_thresh}, 最小面积 = {recommended_area}")
+    else:
+        recommended_thresh = 2.0
+        recommended_area = 5
+        st.info(f"💡 {instrument}建议: 检测阈值 = {recommended_thresh}, 最小面积 = {recommended_area}")
+
+    # 使用推荐值按钮
+    col_rec, col_space = st.columns([1, 3])
+    with col_rec:
+        if st.button("🎯 使用推荐值", key='use_recommended_step1'):
+            st.session_state.workflow_state['detect_thresh'] = recommended_thresh
+            st.session_state.workflow_state['min_area'] = recommended_area
+            add_log(f"应用推荐参数: 阈值={recommended_thresh}, 最小面积={recommended_area}")
+            st.rerun()
 
     # 参数控制
     col_param, col_run = st.columns([2, 1])

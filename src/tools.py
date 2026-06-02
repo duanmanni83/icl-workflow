@@ -58,18 +58,46 @@ class ToolExtractInitialMask:
             logger.info(f"Reading FITS: {image_fits_path}")
             data, wcs, header = FITSHandler.read_fits(image_fits_path)
 
-            # Handle NaN/Inf
-            data_clean = np.copy(data)
+            # Handle NaN/Inf and convert to float64
+            data_clean = np.array(data, dtype=np.float64)
             data_clean[~np.isfinite(data_clean)] = 0
+
+            # Ensure non-negative
+            data_min = np.min(data_clean)
+            if data_min < 0:
+                data_clean -= data_min
+
+            # Scale small values (JWST MJy/sr units)
+            if np.max(data_clean) < 1e-6:
+                scale_factor = 1e9
+                data_clean *= scale_factor
+                logger.info(f"Scaled data by {scale_factor}")
+
+            # Increase SEP pixel buffer for large images
+            sep.set_extract_pixstack(3000000)
 
             # SEP background estimation
             logger.info("Estimating background with SEP...")
             bkg = sep.Background(data_clean)
             data_sub = data_clean - bkg
 
-            # Object extraction
-            logger.info(f"Extracting objects (thresh={detect_thresh}, min_area={min_area})...")
-            objects = sep.extract(data_sub, detect_thresh, err=bkg.globalrms, minarea=min_area)
+            # Object extraction with adaptive threshold for large images
+            effective_thresh = detect_thresh
+            if data_clean.shape[0] * data_clean.shape[1] > 4000 * 4000:
+                effective_thresh = max(detect_thresh, 2.0)
+                logger.info(f"Large image, using threshold {effective_thresh}")
+
+            logger.info(f"Extracting objects (thresh={effective_thresh}, min_area={min_area})...")
+            try:
+                objects = sep.extract(data_sub, effective_thresh, err=bkg.globalrms, minarea=min_area)
+            except Exception as extract_error:
+                if "pixstack" in str(extract_error).lower():
+                    return ToolResult(
+                        success=False,
+                        message=f"Error: Too many pixels above threshold. Try increasing detection threshold to 3.0 or higher, or the image may be too noisy.",
+                        requires_human_input=False
+                    )
+                raise
             logger.info(f"Detected {int(len(objects))} objects")
 
             # Create segmentation map (must be uint8 for sep)
@@ -697,6 +725,9 @@ class ToolEvaluateFieldComplexity:
                 logger.info(f"Shifted data by {-data_min} to make non-negative")
 
             # SEP extraction
+            # Increase pixel buffer for large JWST images (default is 300000)
+            sep.set_extract_pixstack(3000000)
+
             bkg = sep.Background(data_clean)
             data_sub = data_clean - bkg
 
@@ -707,7 +738,23 @@ class ToolEvaluateFieldComplexity:
                     message="Error: Background subtraction failed. Data may have unusual distribution. Try a different image or check data quality."
                 )
 
-            objects = sep.extract(data_sub, detect_thresh, err=bkg.globalrms)
+            # Use a higher threshold for large images to avoid buffer overflow
+            # For JWST, the noise characteristics may be different
+            effective_thresh = max(detect_thresh, 2.0)
+            if data_clean.shape[0] * data_clean.shape[1] > 4000 * 4000:
+                # Large image, use higher threshold
+                effective_thresh = max(detect_thresh, 3.0)
+                logger.info(f"Large image detected ({data_clean.shape}), using threshold {effective_thresh}")
+
+            try:
+                objects = sep.extract(data_sub, effective_thresh, err=bkg.globalrms)
+            except Exception as extract_error:
+                if "pixstack" in str(extract_error).lower():
+                    return ToolResult(
+                        success=False,
+                        message=f"Error: Too many pixels above threshold. The image may be noisy or the detection threshold ({effective_thresh}) is too low. Try increasing the detection threshold to 3.0 or higher."
+                    )
+                raise
 
             # Count bright vs faint stars
             bright_stars = np.sum(objects['flux'] > bright_star_thresh)

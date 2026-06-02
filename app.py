@@ -354,11 +354,13 @@ def step_0_file_upload():
 
                         st.info(result.message)
 
-                        # 下一步按钮
-                        if st.button("进入 Step 1 →", key='to_step1'):
-                            st.session_state.workflow_state['current_step'] = 1
-                            add_log("进入 Step 1")
-                            st.rerun()
+                        # 下一步按钮 - 使用更简单的方式
+                        col_next = st.columns([1, 2])[0]
+                        with col_next:
+                            if st.button("进入 Step 1 →", key='to_step1', use_container_width=True):
+                                st.session_state.workflow_state['current_step'] = 1
+                                add_log("进入 Step 1")
+                                st.rerun()
 
                 except Exception as e:
                     add_log(f"评估过程异常: {str(e)}", "ERROR")
@@ -894,29 +896,40 @@ def main():
         st.write(f"阈值: {st.session_state.workflow_state.get('detect_thresh', 1.5)}")
         st.write(f"插值: {st.session_state.workflow_state.get('interpolation_method', 'rbf')}")
 
-    # 主区域 - 2列: 内容和日志
-    col_main, col_logs = st.columns([3, 1])
+    # 主区域 - 简化布局避免重渲染问题
+    current_step = st.session_state.workflow_state['current_step']
 
-    with col_main:
-        # 显示当前步骤
-        current_step = st.session_state.workflow_state['current_step']
+    # 主内容区（不再使用columns包裹，避免按钮问题）
+    # 显示当前步骤
+    if current_step == 0:
+        step_0_file_upload()
+    elif current_step == 1:
+        step_1_initial_mask()
+    elif current_step == 2:
+        step_2_spike_mask()
+    elif current_step == 3:
+        step_3_merge_dilate()
+    elif current_step == 4:
+        step_4_interpolation()
+    elif current_step == 5:
+        step_5_summary()
 
-        if current_step == 0:
-            step_0_file_upload()
-        elif current_step == 1:
-            step_1_initial_mask()
-        elif current_step == 2:
-            step_2_spike_mask()
-        elif current_step == 3:
-            step_3_merge_dilate()
-        elif current_step == 4:
-            step_4_interpolation()
-        elif current_step == 5:
-            step_5_summary()
+    # 日志面板 - 放在侧边栏避免干扰主流程
+    with st.sidebar:
+        st.markdown("---")
+        st.subheader("📋 系统日志")
 
-    with col_logs:
-        # 日志面板
-        render_logs()
+        # 只显示最后10条日志
+        logs = st.session_state.workflow_state.get('logs', [])
+        if logs:
+            log_text = "\n".join(logs[-20:])  # 只显示最后20条
+            st.text_area("日志", log_text, height=200, key='log_display')
+        else:
+            st.text("暂无日志...")
+
+        if st.button("🗑️ 清空日志"):
+            st.session_state.workflow_state['logs'] = []
+            st.rerun()
 
 
 if __name__ == "__main__":
